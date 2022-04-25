@@ -1,0 +1,1 @@
+898666451be84d3e8f927e4f2cdeabce45b2866548d36d88aa1a7051da0e11cd  ./target/wasm32-unknown-unknown/release/cw20_bonding.wasm
