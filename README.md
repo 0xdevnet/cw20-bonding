@@ -1,42 +1,56 @@
-# cw20-bonding
+# CW20 Bonding
 
-## CI Support
+This serves three purposes:
 
-We have template configurations for both [GitHub Actions](.github/workflows/Basic.yml)
-and [Circle CI](.circleci/config.yml) in the generated project, so you can
-get up and running with CI right away.
+* A usable and extensible contract for arbitrary bonding curves
+* A demonstration of how to extend `cw20-base` to add extra functionality
+* A demonstration of the Receiver interface
 
-One note is that the CI runs all `cargo` commands
-with `--locked` to ensure it uses the exact same versions as you have locally. This also means
-you must have an up-to-date `Cargo.lock` file, which is not auto-generated.
-The first time you set up the project (or after adding any dep), you should ensure the
-`Cargo.lock` file is updated, so the CI will test properly. This can be done simply by
-running `cargo check` or `cargo unit-test`.
+## Design
 
-## Using your project
+There are two variants - accepting native tokens and accepting cw20 tokens
+as the *reserve* token (this is the token that is input to the bonding curve).
 
-Once you have your custom repo, you should check out [Developing](./Developing.md) to explain
-more on how to run tests and develop code. Or go through the
-[online tutorial](https://docs.cosmwasm.com/) to get a better feel
-of how to develop.
+Minting: When the input is sent to the contract (either via `ExecuteMsg::Buy{}`
+with native tokens, or via `ExecuteMsg::Receive{}` with cw20 tokens),
+those tokens remain on the contract and it issues it's own token to the
+sender's account (known as *supply* token).
 
-[Publishing](./Publishing.md) contains useful information on how to publish your contract
-to the world, once you are ready to deploy it on a running blockchain. And
-[Importing](./Importing.md) contains information about pulling in other contracts or crates
-that have been published.
+Burning: We override the burn function to not only burn the requested tokens,
+but also release a proper number of the input tokens to the account that burnt
+the custom token
 
-Please replace this README file with information about your specific project. You can keep
-the `Developing.md` and `Publishing.md` files as useful referenced, but please set some
-proper description in the README.
+Curves: `handle` specifies a bonding function, which is sent to parameterize
+`handle_fn` (which does all the work). The curve is set when compiling
+the contract. In fact many contracts can just wrap `cw20-bonding` and
+specify the custom curve parameter.
 
-## Gitpod integration
+Read more about [bonding curve math here](https://yos.io/2018/11/10/bonding-curves/)
 
-[Gitpod](https://www.gitpod.io/) container-based development platform will be enabled on your project by default.
+Note: the first version only accepts native tokens as the 
 
-Workspace contains:
- - **rust**: for builds
- - [wasmd](https://github.com/CosmWasm/wasmd): for local node setup and client
- - **jq**: shell JSON manipulation tool
+### Math
 
-Follow [Gitpod Getting Started](https://www.gitpod.io/docs/getting-started) and launch your workspace.
+Given a price curve `f(x)` = price of the `x`th token, we want to figure out
+how to buy into and sell from the bonding curve. In fact we can look at
+the total supply issued. let `F(x)` be the integral of `f(x)`. We have issued
+`x` tokens for `F(x)` sent to the contract. Or, in reverse, if we send
+`x` tokens to the contract, it will mint `F^-1(x)` tokens.
 
+From this we can create some formulas. Assume we currently have issued `S`
+tokens in exchange for `N = F(S)` input tokens. If someone sends us `x` tokens,
+how much will we issue?
+
+`F^-1(N+x) - F^-1(N)` = `F^-1(N+x) - S`
+
+And if we sell `x` tokens, how much we will get out:
+
+`F(S) - F(S-x)` = `N - F(S-x)`
+
+Just one calculation each side. To be safe, make sure to round down and
+always check against `F(S)` when using `F^-1(S)` to estimate how much
+should be issued. This will also safely give us how many tokens to return.
+
+There is built in support for safely [raising i128 to an integer power](https://doc.rust-lang.org/std/primitive.i128.html#method.checked_pow).
+There is also a crate to [provide nth-root of for all integers](https://docs.rs/num-integer/0.1.43/num_integer/trait.Roots.html).
+With these two, we can handle most math except for logs/exponents.
